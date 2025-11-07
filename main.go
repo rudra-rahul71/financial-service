@@ -38,18 +38,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error getting Firebase Auth client: %v\n", err)
 	}
+	firestoreClient, err := app.Firestore(ctx)
+	if err != nil {
+		log.Fatalf("error getting Firestore client: %v", err)
+	}
 
 	//initialize plaid
 	configuration := plaid.NewConfiguration()
 	configuration.AddDefaultHeader("PLAID-CLIENT-ID", "")
 	configuration.AddDefaultHeader("PLAID-SECRET", "")
 	configuration.UseEnvironment(plaid.Sandbox)
-	client := plaid.NewAPIClient(configuration)
-
-	print(client)
+	plaidClient := plaid.NewAPIClient(configuration)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/init", api.CreateLinkToken(client))
+	mux.HandleFunc("/init", api.CreateLinkToken(plaidClient))
+	mux.HandleFunc("/create/{publicToken}", api.ExchangePublicToken(plaidClient, firestoreClient))
 	fmt.Println("Server listening on port: 8080")
 
 	if err := http.ListenAndServe(":8080", utils.LoggingMiddleware(utils.AuthMiddleware(mux, authClient))); err != nil {
