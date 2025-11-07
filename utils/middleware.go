@@ -9,6 +9,10 @@ import (
 	"firebase.google.com/go/auth"
 )
 
+type contextKey string
+
+const idTokenKey contextKey = "idToken"
+
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -54,12 +58,16 @@ func AuthMiddleware(next http.Handler, authClient *auth.Client) http.Handler {
 			return
 		}
 
-		type contextKey string
-		const userContextKey contextKey = "firebaseUser"
-
-		ctx := context.WithValue(r.Context(), userContextKey, token)
+		ctx := context.WithValue(r.Context(), idTokenKey, token)
 		r = r.WithContext(ctx)
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func GetIDToken(ctx context.Context) *auth.Token {
+	if token, ok := ctx.Value(idTokenKey).(*auth.Token); ok {
+		return token
+	}
+	return nil
 }
