@@ -6,11 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/plaid/plaid-go/v40/plaid"
 	"github.com/rudra-rahul71/financial-service/utils"
 )
+
+type UserDocument struct {
+	Accounts []plaid.ItemPublicTokenExchangeResponse `firestore:"accounts"`
+}
 
 func CreateLinkToken(plaidClient *plaid.APIClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +45,7 @@ func CreateLinkToken(plaidClient *plaid.APIClient) http.HandlerFunc {
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
 		err2 := json.NewEncoder(w).Encode(resp)
 		if err2 != nil {
 			http.Error(w, "Error encoding JSON response", http.StatusInternalServerError)
@@ -75,7 +81,67 @@ func ExchangePublicToken(client *plaid.APIClient, firestoreClient *firestore.Cli
 		if err2 != nil {
 			http.Error(w, "error adding document: %v", http.StatusInternalServerError)
 		}
-
-		fmt.Printf("Document written with ID: %s\n", docRef.ID)
 	}
+}
+
+func SearchAccounts(client *plaid.APIClient, firestoreClient *firestore.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := utils.GetIDToken(r.Context())
+
+		collection := firestoreClient.Collection("users")
+		docRef := collection.Doc(token.UID)
+
+		docSnap, err := docRef.Get(r.Context())
+		if err != nil {
+			http.Error(w, "Error getting document: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var userDoc UserDocument
+		if err := docSnap.DataTo(&userDoc); err != nil {
+			http.Error(w, "Error decoding document: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := []plaid.TransactionsGetResponse{}
+		for _, account := range userDoc.Accounts {
+			trans, err := GetTransactions(client, account.AccessToken)
+			if err != nil {
+				http.Error(w, "Error getting transactions: "+err.Error(), http.StatusInternalServerError)
+			}
+			resp = append(resp, *trans)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(w).Encode(resp)
+		if err != nil {
+			http.Error(w, "Error encoding JSON response", http.StatusInternalServerError)
+		}
+	}
+}
+
+func GetTransactions(client *plaid.APIClient, accessToken string) (*plaid.TransactionsGetResponse, error) {
+	ctx := context.Background()
+
+	layout := "2006-01-02"
+
+	// Get the current time and a time 30 days ago
+	endTime := time.Now()
+	year, month, _ := endTime.Date()
+
+	startTime := time.Date(year, month, 1, 0, 0, 0, 0, endTime.Location())
+
+	// Format the time objects into the required string format
+	endDate := endTime.Format(layout)
+	startDate := startTime.Format(layout)
+
+	request := plaid.NewTransactionsGetRequest(accessToken, startDate, endDate)
+
+	resp, _, err := client.PlaidApi.TransactionsGet(ctx).TransactionsGetRequest(*request).Execute()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
 }
