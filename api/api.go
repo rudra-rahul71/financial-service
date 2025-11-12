@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -105,7 +106,12 @@ func SearchAccounts(client *plaid.APIClient, firestoreClient *firestore.Client) 
 
 		resp := []plaid.TransactionsGetResponse{}
 		for _, account := range userDoc.Accounts {
-			trans, err := GetTransactions(client, account.AccessToken)
+			days := r.PathValue("days")
+			i, err := strconv.Atoi(days)
+			if err != nil {
+				http.Error(w, "Error getting transactions: "+err.Error(), http.StatusInternalServerError)
+			}
+			trans, err := GetTransactions(client, account.AccessToken, i)
 			if err != nil {
 				http.Error(w, "Error getting transactions: "+err.Error(), http.StatusInternalServerError)
 			}
@@ -120,16 +126,15 @@ func SearchAccounts(client *plaid.APIClient, firestoreClient *firestore.Client) 
 	}
 }
 
-func GetTransactions(client *plaid.APIClient, accessToken string) (*plaid.TransactionsGetResponse, error) {
+func GetTransactions(client *plaid.APIClient, accessToken string, days int) (*plaid.TransactionsGetResponse, error) {
 	ctx := context.Background()
 
 	layout := "2006-01-02"
 
 	// Get the current time and a time 30 days ago
 	endTime := time.Now()
-	year, month, _ := endTime.Date()
 
-	startTime := time.Date(year, month, 1, 0, 0, 0, 0, endTime.Location())
+	startTime := endTime.Add(-time.Duration(days) * 24 * time.Hour)
 
 	// Format the time objects into the required string format
 	endDate := endTime.Format(layout)

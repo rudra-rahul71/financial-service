@@ -53,7 +53,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/init", api.CreateLinkToken(plaidClient))
 	mux.HandleFunc("/create/{publicToken}", api.ExchangePublicToken(plaidClient, firestoreClient))
-	mux.HandleFunc("/search", api.SearchAccounts(plaidClient, firestoreClient))
+	mux.HandleFunc("/search/{days}", api.SearchAccounts(plaidClient, firestoreClient))
 	fmt.Println("Server listening on port: 8080")
 
 	if err := http.ListenAndServe(":8080", utils.LoggingMiddleware(utils.AuthMiddleware(mux, authClient))); err != nil {
