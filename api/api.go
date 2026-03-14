@@ -11,7 +11,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"github.com/plaid/plaid-go/v40/plaid"
-	"github.com/rudra-rahul71/financial-service/utils"
+	"github.com/rudra-rahul71/financial-service/internal/middleware"
 )
 
 type UserDocument struct {
@@ -20,7 +20,7 @@ type UserDocument struct {
 
 func CreateLinkToken(plaidClient *plaid.APIClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := utils.GetIDToken(r.Context())
+		token := middleware.GetIDToken(r.Context())
 		ctx := context.Background()
 
 		user := plaid.LinkTokenCreateRequestUser{
@@ -50,6 +50,7 @@ func CreateLinkToken(plaidClient *plaid.APIClient) http.HandlerFunc {
 		err2 := json.NewEncoder(w).Encode(resp)
 		if err2 != nil {
 			http.Error(w, "Error encoding JSON response", http.StatusInternalServerError)
+			return
 		}
 	}
 }
@@ -58,7 +59,7 @@ func ExchangePublicToken(client *plaid.APIClient, firestoreClient *firestore.Cli
 	return func(w http.ResponseWriter, r *http.Request) {
 		publicToken := r.PathValue("publicToken")
 
-		token := utils.GetIDToken(r.Context())
+		token := middleware.GetIDToken(r.Context())
 		ctx := context.Background()
 
 		request := plaid.NewItemPublicTokenExchangeRequest(publicToken)
@@ -87,7 +88,7 @@ func ExchangePublicToken(client *plaid.APIClient, firestoreClient *firestore.Cli
 
 func SearchAccounts(client *plaid.APIClient, firestoreClient *firestore.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := utils.GetIDToken(r.Context())
+		token := middleware.GetIDToken(r.Context())
 
 		collection := firestoreClient.Collection("users")
 		docRef := collection.Doc(token.UID)
@@ -104,16 +105,19 @@ func SearchAccounts(client *plaid.APIClient, firestoreClient *firestore.Client) 
 			return
 		}
 
+		days := r.PathValue("days")
+		i, err := strconv.Atoi(days)
+		if err != nil {
+			http.Error(w, "Invalid days parameter: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		resp := []plaid.TransactionsGetResponse{}
 		for _, account := range userDoc.Accounts {
-			days := r.PathValue("days")
-			i, err := strconv.Atoi(days)
-			if err != nil {
-				http.Error(w, "Error getting transactions: "+err.Error(), http.StatusInternalServerError)
-			}
 			trans, err := GetTransactions(client, account.AccessToken, i)
 			if err != nil {
 				http.Error(w, "Error getting transactions: "+err.Error(), http.StatusInternalServerError)
+				return
 			}
 			resp = append(resp, *trans)
 		}
