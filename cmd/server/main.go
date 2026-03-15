@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	firebase "firebase.google.com/go"
-	"firebase.google.com/go/auth"
+	"github.com/joho/godotenv"
 	"github.com/plaid/plaid-go/v40/plaid"
 	"github.com/rudra-rahul71/financial-service/internal/handler"
 	"github.com/rudra-rahul71/financial-service/internal/middleware"
@@ -15,27 +16,35 @@ import (
 	"google.golang.org/api/option"
 )
 
-var authClient *auth.Client
-
 func main() {
 	fmt.Print(`
 ███████╗   ██████╗     ███████╗ ███████╗ ███████╗ ██╗   ██╗ ███████╗ ███████╗    ██╗      ██╗ ██╗   ██╗ ███████╗
 ██╔════╝  ██╔═══██╗    ██╔════╝ ██╔════╝ ██╔══██╗ ██║   ██║ ██╔════╝ ██╔══██╗    ██║      ██║ ██║   ██║ ██╔════╝
 ██║  ███╗ ██║   ██║    ███████╗ █████╗   ██████╔╝ ██║   ██║ █████╗   ██████╔╝    ██║      ██║ ██║   ██║ █████╗  
-██║   ██║ ██║   ██║    ╚════██║ ██╔══╝   ██╔══██╗ ╚██╗ ██╔╝ ██╔══╝   ██╔══██╗    ██║      ██║ ╚██╗ ██╔╝ ██╔══╝  
+██║   ██║ ██║   ██║    ╚════██║ ██╔══╝   ██╔══██╗ ╚██╗ ██╔╝ ██╔════╝ ██╔══██╗    ██║      ██║ ╚██╗ ██╔╝ ██╔══╝  
 ╚██████╔╝ ╚██████╔╝    ███████║ ███████╗ ██║  ██║  ╚████╔╝  ███████╗ ██║  ██║    ███████╗ ██║  ╚████╔╝  ███████╗ ██╗ ██╗ ██╗
  ╚═════╝   ╚═════╝     ╚══════╝ ╚══════╝ ╚═╝  ╚═╝   ╚═══╝   ╚══════╝ ╚═╝  ╚═╝    ╚══════╝ ╚═╝   ╚═══╝   ╚══════╝ ╚═╝ ╚═╝ ╚═╝
 `)
 
+	// Load .env file if it exists
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found or error parsing it. Relying on system environment variables.")
+	}
+
 	ctx := context.Background()
 
 	//initialize firebase
-	opt := option.WithCredentialsFile("configs/serviceAccountKey.json")
+	firebaseCredentials := os.Getenv("FIREBASE_CREDENTIALS")
+	if firebaseCredentials == "" {
+		firebaseCredentials = "configs/serviceAccountKey.json"
+	}
+
+	opt := option.WithCredentialsFile(firebaseCredentials)
 	app, err := firebase.NewApp(ctx, nil, opt)
 	if err != nil {
 		log.Fatalf("Error initializing Firebase app: %v\n", err)
 	}
-	authClient, err = app.Auth(ctx)
+	authClient, err := app.Auth(ctx)
 	if err != nil {
 		log.Fatalf("Error getting Firebase Auth client: %v\n", err)
 	}
@@ -48,10 +57,23 @@ func main() {
 	store := storage.NewService(firestoreClient)
 
 	//initialize plaid
+	plaidClientID := os.Getenv("PLAID_CLIENT_ID")
+	plaidSecret := os.Getenv("PLAID_SECRET")
+	plaidEnvStr := os.Getenv("PLAID_ENV")
+
+	if plaidClientID == "" || plaidSecret == "" {
+		log.Fatal("PLAID_CLIENT_ID and PLAID_SECRET environment variables must be set")
+	}
+
+	plaidEnv := plaid.Production
+	if plaidEnvStr == "sandbox" || plaidEnvStr == "development" {
+		plaidEnv = plaid.Sandbox
+	}
+
 	configuration := plaid.NewConfiguration()
-	configuration.AddDefaultHeader("PLAID-CLIENT-ID", "68dc0035a333020024b7bc15")
-	configuration.AddDefaultHeader("PLAID-SECRET", "c2a6aae42a0dbd3c6ab7799673fe41")
-	configuration.UseEnvironment(plaid.Production)
+	configuration.AddDefaultHeader("PLAID-CLIENT-ID", plaidClientID)
+	configuration.AddDefaultHeader("PLAID-SECRET", plaidSecret)
+	configuration.UseEnvironment(plaidEnv)
 	plaidClient := plaid.NewAPIClient(configuration)
 
 	mux := http.NewServeMux()

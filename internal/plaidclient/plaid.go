@@ -8,8 +8,7 @@ import (
 )
 
 // GetTransactions fetches transactions for the last N days
-func GetTransactions(client *plaid.APIClient, accessToken string, days int) (*plaid.TransactionsGetResponse, error) {
-	ctx := context.Background()
+func GetTransactions(ctx context.Context, client *plaid.APIClient, accessToken string, days int) (*plaid.TransactionsGetResponse, error) {
 
 	layout := "2006-01-02"
 

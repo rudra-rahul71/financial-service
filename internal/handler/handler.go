@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 func CreateLinkToken(plaidClient *plaid.APIClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := middleware.GetIDToken(r.Context())
-		ctx := context.Background()
+		ctx := r.Context()
 
 		user := plaid.LinkTokenCreateRequestUser{
 			ClientUserId: token.UID,
@@ -56,7 +55,7 @@ func ExchangePublicToken(client *plaid.APIClient, store *storage.Service) http.H
 		publicToken := r.PathValue("publicToken")
 
 		token := middleware.GetIDToken(r.Context())
-		ctx := context.Background()
+		ctx := r.Context()
 
 		request := plaid.NewItemPublicTokenExchangeRequest(publicToken)
 
@@ -94,7 +93,7 @@ func SearchAccounts(client *plaid.APIClient, store *storage.Service) http.Handle
 
 		resp := []plaid.TransactionsGetResponse{}
 		for _, account := range accounts {
-			trans, err := plaidclient.GetTransactions(client, account.AccessToken, i)
+			trans, err := plaidclient.GetTransactions(r.Context(), client, account.AccessToken, i)
 			if err != nil {
 				http.Error(w, "Error getting transactions: "+err.Error(), http.StatusInternalServerError)
 				return

@@ -32,3 +32,5 @@ go.work
 *.pem
 *.key
 configs/
+
+.env
