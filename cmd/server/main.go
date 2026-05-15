@@ -79,7 +79,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/init", handler.CreateLinkToken(plaidClient))
 	mux.HandleFunc("/create/{publicToken}", handler.ExchangePublicToken(plaidClient, store))
-	mux.HandleFunc("/search/{days}", handler.SearchAccounts(plaidClient, store))
+	mux.HandleFunc("/sync", handler.SyncAccounts(plaidClient, store))
 	fmt.Println("Server listening on port: 8080")
 
 	if err := http.ListenAndServe(":8080", middleware.LoggingMiddleware(middleware.AuthMiddleware(mux, authClient))); err != nil {

@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/plaid/plaid-go/v40/plaid"
 	"github.com/rudra-rahul71/financial-service/internal/middleware"
-	"github.com/rudra-rahul71/financial-service/internal/plaidclient"
 	"github.com/rudra-rahul71/financial-service/internal/storage"
 )
 
@@ -74,9 +72,28 @@ func ExchangePublicToken(client *plaid.APIClient, store *storage.Service) http.H
 	}
 }
 
-func SearchAccounts(client *plaid.APIClient, store *storage.Service) http.HandlerFunc {
+type SyncRequest struct {
+	Cursors map[string]string `json:"cursors"`
+}
+
+type SyncResponse struct {
+	Item       plaid.Item                 `json:"item"`
+	Accounts   []plaid.AccountBase        `json:"accounts"`
+	Added      []plaid.Transaction        `json:"added"`
+	Modified   []plaid.Transaction        `json:"modified"`
+	Removed    []plaid.RemovedTransaction `json:"removed"`
+	NextCursor string                     `json:"next_cursor"`
+}
+
+func SyncAccounts(client *plaid.APIClient, store *storage.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := middleware.GetIDToken(r.Context())
+
+		var reqData SyncRequest
+		if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
+			http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		accounts, err := store.GetUserAccounts(r.Context(), token.UID)
 		if err != nil {
@@ -84,27 +101,57 @@ func SearchAccounts(client *plaid.APIClient, store *storage.Service) http.Handle
 			return
 		}
 
-		days := r.PathValue("days")
-		i, err := strconv.Atoi(days)
-		if err != nil {
-			http.Error(w, "Invalid days parameter: "+err.Error(), http.StatusBadRequest)
-			return
-		}
+		var syncResponses []SyncResponse
 
-		resp := []plaid.TransactionsGetResponse{}
 		for _, account := range accounts {
-			trans, err := plaidclient.GetTransactions(r.Context(), client, account.AccessToken, i)
+			accountsReq := plaid.NewAccountsGetRequest(account.AccessToken)
+			accountsResp, _, err := client.PlaidApi.AccountsGet(r.Context()).AccountsGetRequest(*accountsReq).Execute()
 			if err != nil {
-				http.Error(w, "Error getting transactions: "+err.Error(), http.StatusInternalServerError)
+				http.Error(w, "Error getting accounts: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
-			resp = append(resp, *trans)
+
+			cursor := reqData.Cursors[account.ItemId]
+
+			var added []plaid.Transaction
+			var modified []plaid.Transaction
+			var removed []plaid.RemovedTransaction
+			hasMore := true
+			nextCursor := cursor
+
+			for hasMore {
+				syncReq := plaid.NewTransactionsSyncRequest(account.AccessToken)
+				if nextCursor != "" {
+					syncReq.SetCursor(nextCursor)
+				}
+				syncResp, _, err := client.PlaidApi.TransactionsSync(r.Context()).TransactionsSyncRequest(*syncReq).Execute()
+				if err != nil {
+					http.Error(w, "Error syncing transactions: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+
+				added = append(added, syncResp.GetAdded()...)
+				modified = append(modified, syncResp.GetModified()...)
+				removed = append(removed, syncResp.GetRemoved()...)
+
+				hasMore = syncResp.GetHasMore()
+				nextCursor = syncResp.GetNextCursor()
+			}
+
+			syncResponses = append(syncResponses, SyncResponse{
+				Item:       accountsResp.GetItem(),
+				Accounts:   accountsResp.GetAccounts(),
+				Added:      added,
+				Modified:   modified,
+				Removed:    removed,
+				NextCursor: nextCursor,
+			})
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(w).Encode(resp)
+		err = json.NewEncoder(w).Encode(syncResponses)
 		if err != nil {
-			http.Error(w, "Error encoding JSON response", http.StatusInternalServerError)
+			http.Error(w, "Error encoding JSON response: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
